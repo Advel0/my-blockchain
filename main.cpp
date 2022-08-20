@@ -67,25 +67,32 @@ class Block{
 
     public: 
 
-  
+        int getIndex(){
+            return this->index;
+        }
 
-        void writeBlock(vector<Block> & blockchain){
-            if (!blockchain.empty()) {
-                this->prevHash = blockchain.front().hash;
-                this->index = blockchain.front().index + 1;
-            } else {
-                this->prevHash = "0x00000000000000000000000000000000000000000000000000000000000000";
-                this->index = 0;
-            }
-            this->createHash();
-            blockchain.push_back(*this);
+        void setIndex(int index){
+            this->index = index;
+        }
+
+        string getPrevHash(){
+            return this->prevHash;
+        }
+
+        void setPrevHash(string prevHash){
+            this->prevHash = prevHash;
+        } 
+
+        string getHash(){
+            return this->hash;
         }
 
         string toString(){
             string stringBlock = "------------------------------------------------------------------------------------\n";
+            stringBlock += "Block Index       : " + to_string(this->index) +'\n'; 
             stringBlock += "prevHash          : " + this->prevHash + "\n";
             stringBlock += "Hash              : " + this->hash + "\n";
-
+            stringBlock += "------------------------------------------------------------------------------------\n";        
             stringBlock += "transactions      : \n" ;
 
             for(int i = 0; i < transactionsAmount; i++){
@@ -96,8 +103,6 @@ class Block{
             for(int i = transactionsAmount; i < 15; i++){
                 stringBlock += "           0x00000000000000000000000000000000000000000000000000000000000000\n";
             }   
-
-            stringBlock += "Block Index  : " + to_string(this->index) +'\n'; 
 
             stringBlock += "------------------------------------------------------------------------------------\n";
 
@@ -135,11 +140,33 @@ class Block{
 class Blockchain{
     vector<Block> chain;
 
+    public :
+        string getChain(){
+            string output = "";
+            for(Block block : chain){
+                output += block.toString();
+            }
+            return output;
+        }
+
+        void writeBlock(Block& block){
+            if (!this->chain.empty()) {
+                block.getPrevHash() = this->chain.front().getHash();
+                block.setIndex(this->chain.front().getIndex() + 1);
+            } else {
+                block.setPrevHash("0x00000000000000000000000000000000000000000000000000000000000000");
+                block.setIndex(0);
+            }
+            block.createHash();
+            this->chain.push_back(block);
+        }
+
+        
 };
 
 int main(){
 
-    vector<Block> blockchain;
+    Blockchain chain;
 
 
     Block firstBlock = Block();
@@ -147,13 +174,13 @@ int main(){
     firstBlock.addTransaction("AC");
 
     Block secondBlock = Block();
-    firstBlock.writeBlock(blockchain);
-    secondBlock.writeBlock(blockchain);
+    chain.writeBlock(firstBlock);
+    chain.writeBlock(secondBlock);
 
-    for(Block block : blockchain){
-        cout << block.toString();
-    }
+    cout << chain.getChain();
 
+    
     return 0;
     
 }
+

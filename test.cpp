@@ -1,159 +1,137 @@
 #include <iostream>
+#include <boost/multiprecision/cpp_int.hpp>
+#include <boost/multiprecision/cpp_bin_float.hpp>
 #include <vector>
-#include "sha256.h"
-
+#include <string>
 
 using namespace std;
+namespace mp = boost::multiprecision;
 
-class Transaction{
-    string from;
-    string to;
-    string hash;
 
-    double amount;
+struct PowersAndReminder {
+    vector<int>powers;
+    mp::cpp_int remainder = 0;
 
-    string token;
+    string to_string(){
+        string result = " powers : [ ";
+        for(int power : powers){
+            result += std::to_string(power) + ", ";
+        }
+        result += "] | remainder : " + remainder.str() + "\n";
+        return result;
+    }
 
-    public:
+    mp::cpp_int restore(){
+        mp::cpp_int value;
 
-        Transaction(){
-
+        for(int power : powers){
+            value += mp::pow(mp::cpp_int(2), power);
         }
 
-        string getHash(){
-            return this->hash;
-        }
+        value += remainder;
+    
+        return value;
+    }
+};
+
+int log_2(mp::cpp_int num){
+    int counter=0;
+
+    do{
+        counter++;
+        num/=2;
+    }while (num >= 2 );
+
+    return counter;
+}
+
+PowersAndReminder getPowersAndRemainder(mp::cpp_int num){
+    PowersAndReminder par;
+    int primeLog2 = log_2(num);
+    par.powers.push_back(primeLog2);
+
+
+    if ( mp::pow(mp::cpp_int(2), primeLog2) != num) {
+
+        mp::cpp_int twoPowPrimeLog2 = mp::pow(mp::cpp_int(2), primeLog2);
+
+        mp::cpp_int toPowerAndRemainderList = num - twoPowPrimeLog2;
         
-        Transaction(string token){
-            this->token = token;
-            cout << "< ----  - new transaction - ---- >\n";
-            
-            
-            cout << "from: ";
-            cin >> this->from;
-            cout << "to: ";
-            cin >> this->to;
+        mp::cpp_int currentValue = 0;   
+        mp::cpp_int temp;
+        int counter = primeLog2 - 1;
 
-            cout << "amount: ";
-            cin >> this->amount;
 
-            this->hash = sha256(this->toString());
+        while(currentValue < toPowerAndRemainderList && counter > 0){
+
+            temp = mp::pow(mp::cpp_int(2), counter);
+            if (currentValue + temp <  toPowerAndRemainderList){
+                currentValue += temp;
+                par.powers.push_back(counter);
+            }
+
+            counter--;
         }
 
-        string toString(){
 
-            string stringTrans = " ------------------------------------------------------------------------------\n";
-            stringTrans += " | transaction | from: " + this->from + ", to: " + this->to + " | " + to_string(this->amount) + " " + token +"\n";
-            stringTrans += " | trans hash  : " + this->getHash() + "\n" ;
-            stringTrans += " ------------------------------------------------------------------------------\n";
+        par.remainder = toPowerAndRemainderList - currentValue;
 
-            return stringTrans;
+    }
+
+
+    return par;
+}
+
+mp::cpp_int powerByStruct(mp::cpp_int num, PowersAndReminder par, mp::cpp_int prime){
+    mp::cpp_int result = 1;
+
+    mp::cpp_int powerOfNum;
+
+    for(int power : par.powers){
+        powerOfNum = num;
+
+        for(int i = 0 ; i < power; i++){
+            powerOfNum = mp::pow(powerOfNum, 2) % prime;
         }
-};
 
-class Block{
+        result *= powerOfNum;
+        result %= prime;
+    }
 
+   
 
-    // Block Data
-    int index;
-    Transaction transactions[15];
-
-
-    string prevHash;
-    string hash;
+    if ( par.remainder != 0 ){
+        powerOfNum = mp::pow(num, (int)par.remainder) % prime;
+        result *= powerOfNum;
+        result %= prime;
+    }
     
-    
-    int transactionsAmount = 0;
 
-    public: 
-
-  
-
-        void writeBlock(vector<Block> & blockchain){
-            if (!blockchain.empty()) {
-                this->prevHash = blockchain.front().hash;
-                this->index = blockchain.front().index + 1;
-            } else {
-                this->prevHash = "0x00000000000000000000000000000000000000000000000000000000000000";
-                this->index = 0;
-            }
-            this->createHash();
-            blockchain.push_back(*this);
-        }
-
-        string toString(){
-            string stringBlock = "------------------------------------------------------------------------------------\n";
-            stringBlock += "prevHash          : " + this->prevHash + "\n";
-            stringBlock += "Hash              : " + this->hash + "\n";
-
-            stringBlock += "transactions      : \n" ;
-
-            for(int i = 0; i < transactionsAmount; i++){
-
-                stringBlock += transactions[i].toString();
-
-            }
-            for(int i = transactionsAmount; i < 15; i++){
-                stringBlock += "           0x00000000000000000000000000000000000000000000000000000000000000\n";
-            }   
-
-            stringBlock += "Block Index  : " + to_string(this->index) +'\n'; 
-
-            stringBlock += "------------------------------------------------------------------------------------\n";
-
-            return stringBlock;
-        }
-
-        void addTransaction(string transaction){
-            if (transactionsAmount < 15){
-                transactions[transactionsAmount] = Transaction(transaction);
-                transactionsAmount++;
-            }
-
-        }
-
-        void createHash(){
-
-            //index
-            string toHash = to_string(this->index);
-            
-            // transactions info
-            for(int i = 0; i < transactionsAmount; i++){
-                toHash += transactions[i].toString();
-            }
-            for(int i = transactionsAmount; i < 15; i++){
-                toHash += "0x00000000000000000000000000000000000000000000000000000000000000";
-            }
-
-            toHash += prevHash;
-            
-            this->hash = sha256(toHash);
-        }
-
-};
-
-class Blockchain{
-    vector<Block> chain;
-
-};
+    return result;
+}
 
 int main(){
 
-    vector<Block> blockchain;
+    mp::cpp_int prime = mp::pow(mp::cpp_int(2), 256) - mp::pow(mp::cpp_int(2), 32) - mp::cpp_int(977);
+
+    // mp::cpp_int prime = 257;
+
+    cout << "prime : " << prime << endl;
+    
+    PowersAndReminder par = getPowersAndRemainder(prime-1);
+
+    mp::cpp_int t = powerByStruct(43, par, prime);
+
+    cout << "t: " << t << endl;
+
+    cout << par.to_string();
 
 
-    Block firstBlock = Block();
 
-    firstBlock.addTransaction("AC");
 
-    Block secondBlock = Block();
-    firstBlock.writeBlock(blockchain);
-    secondBlock.writeBlock(blockchain);
-
-    for(Block block : blockchain){
-        cout << block.toString();
-    }
+    // cout << mp::pow(mp::cpp_int(2), (int)prime-1 ) % prime;
+    // cout << prime;/
 
     return 0;
-    
+
 }
