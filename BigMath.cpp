@@ -7,7 +7,8 @@
 using namespace std;
 namespace mp = boost::multiprecision;
 
-
+namespace bigmath{
+    
 struct PowersAndReminder {
     vector<int>powers;
     mp::cpp_int remainder = 0;
@@ -110,25 +111,5 @@ mp::cpp_int powerByStruct(mp::cpp_int num, PowersAndReminder par, mp::cpp_int pr
     return result;
 }
 
-int main(){
-
-    mp::cpp_int prime = mp::pow(mp::cpp_int(2), 256) - mp::pow(mp::cpp_int(2), 32) - mp::cpp_int(977);
-
-    // mp::cpp_int prime = 257;
-
-    cout << "prime : " << prime << endl;
-    
-    PowersAndReminder par = getPowersAndRemainder(prime-2);
-
-    // 7 * 43 = 301     => 301 / 43 = 7
-
-    mp::cpp_int inverse = powerByStruct(43, par, prime);
-
-
-    cout << inverse * 301 % prime;
-
-    // cout << prime;/
-
-    return 0;
-
 }
+
