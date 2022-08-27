@@ -2,7 +2,7 @@
 #include <iostream>
 #include <boost/multiprecision/cpp_int.hpp>
 #include "BigMath.cpp"
-
+#include <sstream>
 
 using namespace std;
 namespace mp = boost::multiprecision; 
@@ -24,6 +24,13 @@ class FiniteField{
 
         FiniteField(mp::cpp_int p){
             this->p = p;
+        }
+
+        bool operator == (FiniteField field){
+            if (this->p == field.getPrime()){
+                return true;
+            } 
+            return false;
         }
 };
 
@@ -95,10 +102,9 @@ class FiniteFieldElement{
             return newValue;
         }
         FiniteFieldElement exponent(mp::cpp_int power){
-            bm::PowersAndReminder par = bm::getPowersAndRemainder(power);
 
-            mp::cpp_int result = bm::powerByStruct(this->getValue(), par, this->field.getPrime());
-
+            mp::cpp_int result = bm::power_by_squaring(this->getValue(), power, this->field.getPrime());
+            
             return FiniteFieldElement(this->field, result);
         }
 
@@ -113,11 +119,19 @@ class FiniteFieldElement{
         }
 
         FiniteFieldElement operator * (FiniteFieldElement el){
+            // cout << "test";
             return this->mulpiply(el);
         }
 
         FiniteFieldElement operator / (FiniteFieldElement el){
             return this->divide(el);
+        }
+
+        bool operator == (FiniteFieldElement el){
+            if (this->getValue() == el.getValue() && this->getField() == el.getField()){
+                return true;
+            }
+            return false;
         }
 };
 
@@ -127,6 +141,7 @@ class EllipticCurve{
     // y^2 = x^2 + a * x + b;
 
     FiniteFieldElement a,b;
+    FiniteField field;
 
     // Point startingPoint;
 
@@ -137,9 +152,17 @@ class EllipticCurve{
         }
 
         EllipticCurve(FiniteFieldElement a, FiniteFieldElement b){
-            this->a = a;
-            this->b = b;
+            if ( a.getField() == b.getField() ){
+                this->a = a;
+                this->b = b;
+                this->field = a.getField();
+            } else {
+                throw invalid_argument( "received negative value" );
+            }
+        }
 
+        FiniteField getField(){
+            return this->field;
         }
 
         FiniteFieldElement getA(){
@@ -149,12 +172,19 @@ class EllipticCurve{
             return this->b;
         }
 
+        bool operator == (EllipticCurve curve){
+            if( this->getA() == curve.getA() && this->getB() == curve.getB() && this->getField() == curve.getField() ){
+                return true;
+            }
+            return false;
+        }
 };
 
 class Point{
     FiniteFieldElement x;
     FiniteFieldElement y;
     EllipticCurve curve;
+    bool isDefined = false;;
 
     public:
         Point(){
@@ -165,6 +195,7 @@ class Point{
             this->x = x;
             this->y = y;
             this->curve = curve;
+            this->isDefined = true;
         }
 
         FiniteFieldElement getX(){
@@ -175,36 +206,80 @@ class Point{
             return this->y;
         }
 
-        string to_stirng(){
+        string to_string(){
             return "( " + this->x.getValue().str() +", " + this->y.getValue().str() + " )\n";
         }
 
+        EllipticCurve getCurve(){
+            return this->curve;
+        }
 
-        Point operator * (FiniteFieldElement el){
-            Point result = *this;
-            if (el.getValue() > 1){
-                result = this->Double(*this);
-            }
+        bool getIsDefined(){
+            return this->isDefined;
+        }
 
+        Point operator * (mp::cpp_int n){
+            return this->multiply_by_doubling(n);
+        }
 
-            for(mp::cpp_int i = 0; i < (el.getValue()-2); i++ ){
-                result = this->Add(result, *this);
-            }
+        Point operator + (Point p){
+            return Add(*this, p);
+        }
+
+        Point operator * (string el){
+
+            mp::cpp_int n;
+            stringstream stream;
+            stream << hex << el;
+            stream >> n;
+
+            Point result = *this * n;
 
             return result;
         }
 
+        bool operator == (Point p){
+            if (this->getX() == p.getX() && this->getY() == p.getY() && this->getCurve() == p.getCurve()){
+                return true;
+            }
+            return false;
+        }
 
-        Point Double(Point point){
+        Point multiply_by_doubling(mp::cpp_int n){
+            Point p = *this;
+            Point result;
+
+            if (n==1){
+                return *this;
+            }
+
+            while( n > 1 ){
+                
+                if ( n%2 == 1){
+                    if (!result.getIsDefined()){
+                        result = p;
+                    } else {
+                        result = result + p;
+                    }
+                }
+
+                p = p.Double();
+
+                n/=2;
+            }
+
+
+            return (result.getIsDefined() ? result + p : p);
+        }   
+
+        Point Double(){
 
             FiniteFieldElement temp_x, temp_y;
             
-            FiniteFieldElement s = ( FiniteFieldElement(this->curve.getA().getField(), 3) * point.getX().exponent(2) + this->curve.getA() ) / (FiniteFieldElement(this->curve.getA().getField(), 2)*point.getY());
-            
-            // cout << s;
+            FiniteFieldElement s = ( FiniteFieldElement(this->curve.getA().getField(), 3) * (*this).getX().exponent(2) + this->curve.getA() ) / (FiniteFieldElement(this->curve.getA().getField(), 2)*(*this).getY());
 
-            temp_x = s * s - FiniteFieldElement(this->curve.getA().getField(), 2) * point.getX();
-            temp_y = s * ( point.getX() - temp_x ) - point.getY();
+            temp_x = s * s - FiniteFieldElement(this->curve.getA().getField(), 2) * (*this).getX();
+            temp_y = s * ( (*this).getX() - temp_x ) - (*this).getY();
         
             Point result = Point(temp_x, temp_y, this->curve);
 
@@ -212,6 +287,9 @@ class Point{
         }
 
         Point Add(Point A, Point B){
+
+            if ( A == B ) return A.Double();
+
             FiniteFieldElement temp_x, temp_y;
             
             FiniteFieldElement s = (B.getY() - A.getY()) / (B.getX() - A.getX()) ;
@@ -224,14 +302,3 @@ class Point{
             return result;
         }
 };
-
-// int main(){
-
-//     FiniteField myField = FiniteField(19);
-
-//     FiniteFieldElement num1 = FiniteFieldElement(myField, 5);
-//     FiniteFieldElement num2 = FiniteFieldElement(myField, 5);
-
-//     cout << (num1*num2).getValue() << endl;
-
-// }
