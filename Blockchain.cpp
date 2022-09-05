@@ -8,6 +8,57 @@
 using namespace std;
 namespace mp = boost::multiprecision;
 
+class Signature{
+    string s;
+    string r;
+
+    public:
+        Signature(){
+
+        }
+
+        Signature(string s, string r){
+            this->s = s;
+            this->r=  r;
+        }
+
+        string getS(){
+            return this->s;
+        }
+        
+        string getR(){
+            return this->r;
+        }
+
+        string to_string(){
+            return "( s: " + this->s  + " , r: " + this->r + " )" ;
+        }
+};
+
+class PrivateKey {
+    string hexValue;
+
+    public:
+        PrivateKey(){
+
+        }
+
+        PrivateKey(string value){
+            this->hexValue = value;
+        }
+
+        string getHexValue(){
+            return this->hexValue;
+        }
+        
+        mp::cpp_int getIntegerValue(){
+            return bm::hexToCpp_Int(this->hexValue);
+        }
+        FiniteFieldElement getFiniteFieldElementValue( FiniteField field ){
+            return FiniteFieldElement(field, this->getIntegerValue());
+        }
+};
+
 class Transaction{
     string from;
     string to;
@@ -17,11 +68,12 @@ class Transaction{
 
     string token;
 
-    string signature;
+    Signature signature;
 
     private:
-        void Hash(){
-            this->hash = sha256(from+to+token+to_string(amount));
+
+        void setHash(string hash){
+            this->hash = hash;
         }
 
     public:
@@ -30,11 +82,19 @@ class Transaction{
 
         }
 
-        void setSignature(string signature){
+        string getSender(){
+            return this->from;
+        }
+
+        string hashTransaction(){
+            return sha256(from+to+token+to_string(amount));
+        }
+
+        void setSignature(Signature signature){
             this->signature = signature;
         }
 
-        string getSignature(){
+        Signature getSignature(){
             return this->signature;
         }
 
@@ -47,7 +107,7 @@ class Transaction{
             this->to = to;
             this->token = token;
             this->amount = amount;
-            Hash();
+            setHash(this->hashTransaction());
         }
 
         string toString(){
@@ -55,7 +115,7 @@ class Transaction{
             string stringTrans = " ------------------------------------------------------------------------------\n";
             stringTrans += " | transaction | from: " + this->from + ", to: " + this->to + " | " + to_string(this->amount) + " " + token +"\n";
             stringTrans += " | trans hash  : " + this->getHash() + "\n" ;
-            stringTrans += " | signature   : " + this->getSignature() + "\n" ;
+            stringTrans += " | signature   : " + this->getSignature().to_string() + "\n" ;
             stringTrans += " ------------------------------------------------------------------------------\n";
 
             return stringTrans;
@@ -165,6 +225,10 @@ class Blockchain{
             this->G = G;
         }
 
+        EllipticCurve getCurve(){
+            return this->curve;
+        }
+
         string getChain(){
             string output = "";
             for(Block block : chain){
@@ -199,23 +263,19 @@ bool confirmTransaction( Transaction transaction ){
 }
 
 class Account {
-    string privateKey;
+    PrivateKey privateKey;
     string publicKey;
     Blockchain chain;
     
     private:
         void generatePublicKey(){
-            Point p = (this->chain.getG() * this->privateKey );
-            
-            stringstream stream;
+            Point p = (this->chain.getG() * this->privateKey.getHexValue() );
 
-            stream << hex << p.getX().getValue();
-
-            stream >> this->publicKey;
+            this->publicKey = "0" + (p.getY().getValue()%2 +2).str() + p.getXHex();
         }
 
     public:
-            Account(string privateKey, Blockchain chain){
+            Account(PrivateKey privateKey, Blockchain chain){
                 this->privateKey = privateKey;
                 this->chain = chain;
                 generatePublicKey();
@@ -229,9 +289,19 @@ class Account {
             }
 
             void signTransaction(Transaction &transaction){
-                string signature;
 
+                FiniteField signatureField = FiniteField(this->chain.getCurve().getOrder());
 
+                FiniteFieldElement h = FiniteFieldElement(signatureField, bm::hexToCpp_Int(transaction.getHash()));
+                FiniteFieldElement k = FiniteFieldElement (signatureField, sha256( (FiniteFieldElement(signatureField, transaction.getHash()) + this->privateKey.getFiniteFieldElementValue(signatureField)).getHexValue() ) ) ;
+                Point R = this->chain.getG() * k.getValue();
+                FiniteFieldElement r = FiniteFieldElement(signatureField, R.getX().getValue());
+
+                FiniteFieldElement s = k.inverse() * (h + r * this->privateKey.getFiniteFieldElementValue(signatureField) );
+
+                Signature signature = Signature(s.getHexValue(), r.getHexValue());
+
+                // cout << R.to_string() << endl;
 
                 transaction.setSignature(signature);
             }
@@ -239,7 +309,7 @@ class Account {
             string to_string(){
                 string stringAccount = " ------------------------------------------------------------------------------\n";
                 stringAccount += " | account | \n";
-                stringAccount += " | privKey     : " + this->privateKey + "\n" ;
+                stringAccount += " | privKey     : " + this->privateKey.getHexValue() + "\n" ;
                 stringAccount += " | publicKey   : " +  this->publicKey + "\n" ;
                 stringAccount += " ------------------------------------------------------------------------------\n";
 
@@ -259,15 +329,15 @@ class Wallet {
 
 
     private:
-        string generateKey(int walletNumber){
+        PrivateKey generateKey(int walletNumber){
             string toHash = to_string(walletNumber);
-            string Key;
+            PrivateKey Key;
 
             for(int i = 0  ; i < this->seedLength; i++){
                 toHash += this->seedPhrase[i];
             }
 
-            Key = sha256(toHash);
+            Key = PrivateKey(sha256(toHash));
             return Key;
         }
 
@@ -278,14 +348,14 @@ class Wallet {
         }
 
         Account getAccount( int number ){
-            string privKey = this->generateKey(number);
+            PrivateKey privKey = this->generateKey(number);
             Account acc = Account(privKey, this->chain);
 
             return acc;
         }
 };
 
-string generateRandomKey(){
+PrivateKey generateRandomKey(){
     
     string nums;
     mp::cpp_int num;
@@ -301,12 +371,37 @@ string generateRandomKey(){
 
     
     stringstream stream;
-    cout << num << endl;
+
     stream << hex << num;
 
     Key =  stream.str();
 
-    return Key;
+    return PrivateKey(Key);
 }
 
+class Node{
+    Blockchain chain;
 
+    public:
+        Node(Blockchain chain){
+            this->chain = chain;
+        }
+
+        bool validateTransaction(Transaction transaction){
+            FiniteField signatureField = FiniteField(this->chain.getCurve().getOrder());
+
+            FiniteFieldElement s = FiniteFieldElement(signatureField, bm::hexToCpp_Int(transaction.getSignature().getS()));
+            FiniteFieldElement h = FiniteFieldElement(signatureField, bm::hexToCpp_Int(transaction.hashTransaction()));
+            FiniteFieldElement r = FiniteFieldElement(signatureField, bm::hexToCpp_Int(transaction.getSignature().getR()));
+
+            Point senderPubKey = Point( transaction.getSender() ,this->chain.getCurve());
+
+            Point R_recovered = (this->chain.getG() * (h * s.inverse()).getValue() + senderPubKey *(r*s.inverse()).getValue() );
+
+            if (R_recovered.getX().getValue() == r.getValue()){
+                return true;
+            }
+            return false;
+        }
+
+};

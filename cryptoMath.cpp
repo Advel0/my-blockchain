@@ -50,11 +50,28 @@ class FiniteFieldElement{
 
         FiniteFieldElement(FiniteField field, mp::cpp_int value){
             this->field = field;
-            this->value = value;
+            this->value = value  % this->field.getPrime();
+            if (this->value < 0){
+                this->value = this->value + this->field.getPrime();
+            }
         }
+
+        FiniteFieldElement(FiniteField field, string value){
+            
+            this->field = field;
+            this->value = bm::hexToCpp_Int(value)  % this->field.getPrime();
+            if (this->value < 0){
+                this->value = this->value + this->field.getPrime();
+            }
+        }
+        
 
         mp::cpp_int getValue(){
             return this->value;
+        }
+
+        string getHexValue(){
+            return bm::cpp_intToHex(this->value);
         }
 
         FiniteFieldElement add(FiniteFieldElement el){
@@ -94,17 +111,17 @@ class FiniteFieldElement{
             return newFiniteFieldElement;
         }
         FiniteFieldElement divide(FiniteFieldElement el){
-            FiniteFieldElement newValue;
-            FiniteFieldElement inverse = el.exponent(this->field.getPrime()-2);
-            
-            newValue = *this * inverse;
-
-            return newValue;
+            return *this * el.inverse();;
         }
+
+        FiniteFieldElement inverse(){
+            return this->exponent(this->field.getPrime()-2);
+        }
+
         FiniteFieldElement exponent(mp::cpp_int power){
 
             mp::cpp_int result = bm::power_by_squaring(this->getValue(), power, this->field.getPrime());
-            
+
             return FiniteFieldElement(this->field, result);
         }
 
@@ -141,6 +158,7 @@ class EllipticCurve{
     // y^2 = x^2 + a * x + b;
 
     FiniteFieldElement a,b;
+    mp::cpp_int order;
     FiniteField field;
 
     // Point startingPoint;
@@ -151,14 +169,19 @@ class EllipticCurve{
 
         }
 
-        EllipticCurve(FiniteFieldElement a, FiniteFieldElement b){
+        EllipticCurve(FiniteFieldElement a, FiniteFieldElement b, mp::cpp_int order){
             if ( a.getField() == b.getField() ){
                 this->a = a;
                 this->b = b;
                 this->field = a.getField();
+                this->order = order;
             } else {
                 throw invalid_argument( "received negative value" );
             }
+        }
+
+        mp::cpp_int getOrder(){
+            return this->order;
         }
 
         FiniteField getField(){
@@ -192,14 +215,64 @@ class Point{
         }
 
         Point(FiniteFieldElement x, FiniteFieldElement y, EllipticCurve curve){
-            this->x = x;
-            this->y = y;
+            if (this->isZero(x,y)){
+                this->x=x;
+                this->y=y;
+            } else {
+                if ( !this->belongsToCurve(x,y,curve)){
+                throw std::invalid_argument( "point not on a curve" ); 
+            }
+            }
             this->curve = curve;
             this->isDefined = true;
+            this->x = x;
+            this->y = y;
         }
+
+        Point(string x, EllipticCurve curve){
+
+            this->curve = curve;
+            this->isDefined = true;
+            this->x = FiniteFieldElement(this->curve.getField(), x.substr(2,-1));
+            if (x.substr(0,2) == "03"){
+                this->y = this->recoverYFromX();
+            } else if (x.substr(0,2) == "02"){
+                this->y = FiniteFieldElement(this->curve.getField(), -1 * this->recoverYFromX().getValue());// this->recoverYFromX();
+            } else{
+                throw std::invalid_argument( "impossible to recover point" ); 
+            }
+            if ( !this->belongsToCurve(this->getX(),y,curve)){
+                throw std::invalid_argument( "point not on a curve" ); 
+            }
+        }
+
+        bool isZero(FiniteFieldElement x, FiniteFieldElement y){
+            if (x.getValue() == 0 && y.getValue() == 1){
+                return true;
+            }
+            return false;
+        }
+
+        bool belongsToCurve(FiniteFieldElement x, FiniteFieldElement y, EllipticCurve curve){
+            if ( y.exponent(2) == x.exponent(3) + x * curve.getA() + curve.getB() ){
+                return true;
+            }
+            return false;
+        }
+
+        FiniteFieldElement recoverYFromX(){
+
+            FiniteFieldElement y2= FiniteFieldElement(this->curve.getField(), ( x.exponent(3) + this->curve.getA() * x + this->curve.getB() ).getValue() );
+            mp::cpp_int y = y2.exponent( FiniteFieldElement(this->curve.getField(), 4).inverse().getValue() ).getValue();
+                
+            return FiniteFieldElement(this->curve.getField(), y);
+    }
 
         FiniteFieldElement getX(){
             return this->x;
+        }
+        string getXHex(){
+            return bm::cpp_intToHex(this->getX().getValue());
         }
 
         FiniteFieldElement getY(){
@@ -218,23 +291,16 @@ class Point{
             return this->isDefined;
         }
 
-        Point operator * (mp::cpp_int n){
-            return this->multiply_by_doubling(n);
-        }
-
         Point operator + (Point p){
             return Add(*this, p);
         }
 
+        Point operator * (mp::cpp_int n){
+            return this->multiply_by_doubling(n);
+        }
+
         Point operator * (string el){
-
-            mp::cpp_int n;
-            stringstream stream;
-            stream << hex << el;
-            stream >> n;
-
-            Point result = *this * n;
-
+            Point result = *this * bm::hexToCpp_Int(el);
             return result;
         }
 
@@ -287,7 +353,15 @@ class Point{
         }
 
         Point Add(Point A, Point B){
-
+            if (A.getX().getValue() == B.getX().getValue() && A.getY().getValue() != B.getY().getValue()){
+                return Point(FiniteFieldElement(this->getCurve().getField(), "0"), FiniteFieldElement(this->getCurve().getField(),"1"), this->getCurve());
+            }
+            if (A.isZero(A.getX(), A.getY())){
+                return B;
+            }
+            if (B.isZero(B.getX(), B.getY())){
+                return A;
+            }
             if ( A == B ) return A.Double();
 
             FiniteFieldElement temp_x, temp_y;
